@@ -1,0 +1,24 @@
+{
+  "name": "userscript-runner",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "run": "node your-script.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AppApp777/userscript-runner.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/AppApp777/userscript-runner/issues"
+  },
+  "homepage": "https://github.com/AppApp777/userscript-runner#readme",
+  "description": "",
+  "dependencies": {
+    "puppeteer": "^24.8.1"
+  }
+}

@@ -1,0 +1,31 @@
+name: 定时运行 Userscript
+
+on:
+  schedule:
+    # 每天北京时间 07:01
+    - cron: '1 23 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+      - name: Install dependencies
+        run: npm ci
+      - name: Execute Userscript
+        run: npm run run
+        env:
+          CUC_USERNAME: ${{ secrets.CUC_USERNAME }}
+          CUC_PASSWORD: ${{ secrets.CUC_PASSWORD }}
