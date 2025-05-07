@@ -8,62 +8,63 @@ if (!CUC_USERNAME || !CUC_PASSWORD) {
   process.exit(1);
 }
 
+// 判断是否在 GitHub Actions CI 环境
+const isCI = process.env.CI === 'true';
+
+// 简易等待函数
+const wait = ms => new Promise(res => setTimeout(res, ms));
+
 ;(async () => {
-  // 简易等待函数
-  const wait = ms => new Promise(res => setTimeout(res, ms));
-
-  // 构建启动参数，默认使用 Puppeteer 自带的 Chromium
+  // 启动浏览器：本地可视（headful），CI 无头
   const launchOptions = {
-    headless: true,
-    args: ['--no-sandbox','--disable-setuid-sandbox']
+    headless: isCI,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
   };
-
-  // 只有在 Windows 上才指定本机 Chrome 的路径
-  if (process.platform === 'win32') {
+  if (!isCI && process.platform === 'win32') {
+    // 本地 Windows 指定 Chrome 路径
     launchOptions.executablePath = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
   }
 
-  // 启动浏览器
   const browser = await puppeteer.launch(launchOptions);
   const page = await browser.newPage();
 
   // —— 登录流程 —— 
   await page.goto('https://rc.cuc.edu.cn/', { waitUntil: 'networkidle2' });
-  // 等到登录表单加载
   await page.waitForSelector('#username', { visible: true });
   await page.type('#username', CUC_USERNAME, { delay: 100 });
   await page.type('#password', CUC_PASSWORD, { delay: 100 });
   await page.waitForSelector('#login_submit', { visible: true });
   await page.click('#login_submit');
 
-  // 等几秒，让后台完成登录并跳转
-  await wait(5000);
+  // —— 等待真正的导航到首页 —— 
+  await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 });
 
-  // —— 处理“我知道了”弹窗 —— 
+  // —— 点击“我知道了” —— 
   try {
     await page.waitForSelector('div.closeNotice', { visible: true, timeout: 5000 });
     await page.click('div.closeNotice');
     await wait(2000);
-  } catch (e) {
+  } catch {
     console.warn('⚠️ “我知道了” 按钮未出现，可能已自动关闭');
   }
 
-  // —— 下面进入预约逻辑 —— 
+  // —— 确保主界面加载完成 —— 
+  await page.waitForSelector('div.selected-item-wrap', { visible: true, timeout: 30000 });
 
-  // 1. 选“场馆 &rarr; 梆子井宿舍区”
-  await page.click('div.selected-item-wrap:nth-child(1) > div:nth-child(2) > div:nth-child(1) > input');
+  // —— 下面是预约流程 —— 
+
+  // 1. 选场馆 &rarr; 梆子井宿舍区
+  await page.click('div.selected-item-wrap:nth-child(1) input');
   await wait(2000);
-  const venueItems = await page.$$('li.el-select-dropdown__item');
-  for (const item of venueItems) {
-    const txt = await page.evaluate(el => el.textContent.trim(), item);
-    if (txt === '梆子井宿舍区') {
+  for (const item of await page.$$('li.el-select-dropdown__item')) {
+    if ((await page.evaluate(el => el.textContent.trim(), item)) === '梆子井宿舍区') {
       await item.click();
       await wait(2000);
       break;
     }
   }
 
-  // 2. 选“今天+2天”的日期
+  // 2. 选今天+2天
   const d = new Date();
   d.setDate(d.getDate() + 2);
   const targetDay = String(d.getDate());
@@ -90,8 +91,8 @@ if (!CUC_USERNAME || !CUC_PASSWORD) {
   });
   await wait(2000);
 
-  // 5. 选“开始时间” &rarr; 07:00
-  await page.click('.custom-time > div:nth-child(1) > div:nth-child(1) > input:nth-child(1)');
+  // 5. 选开始时间&rarr;07:00
+  await page.click('.custom-time > div:nth-child(1) input');
   await wait(2000);
   await page.$$eval('li.el-select-dropdown__item', els => {
     const opt = els.find(li => li.textContent.trim() === '07:00');
@@ -99,7 +100,7 @@ if (!CUC_USERNAME || !CUC_PASSWORD) {
   });
   await wait(2000);
 
-  // 6. 选“结束时间” &rarr; 23:00
+  // 6. 选结束时间&rarr;23:00
   await page.click('div.el-select:nth-child(3) > div:nth-child(1)');
   await wait(2000);
   await page.$$eval('li.el-select-dropdown__item', els => {
@@ -108,7 +109,7 @@ if (!CUC_USERNAME || !CUC_PASSWORD) {
   });
   await wait(2000);
 
-  // 7. 填“主题”和“联系电话”
+  // 7. 填主题和联系电话
   await page.type('input.el-input__inner[placeholder="请输入主题"]', '自习使用', { delay: 100 });
   await wait(2000);
   await page.type('input.el-input__inner[placeholder="请输入联系电话"]', '18626675046', { delay: 100 });
