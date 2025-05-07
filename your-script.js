@@ -12,12 +12,19 @@ if (!CUC_USERNAME || !CUC_PASSWORD) {
   // 简易等待函数
   const wait = ms => new Promise(res => setTimeout(res, ms));
 
-  // 1. 启动无头浏览器
-  const browser = await puppeteer.launch({
+  // 构建启动参数，默认使用 Puppeteer 自带的 Chromium
+  const launchOptions = {
     headless: true,
-    executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
     args: ['--no-sandbox','--disable-setuid-sandbox']
-  });
+  };
+
+  // 只有在 Windows 上才指定本机 Chrome 的路径
+  if (process.platform === 'win32') {
+    launchOptions.executablePath = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+  }
+
+  // 启动浏览器
+  const browser = await puppeteer.launch(launchOptions);
   const page = await browser.newPage();
 
   // —— 登录流程 —— 
