@@ -15,56 +15,74 @@ const isCI = process.env.CI === 'true';
 const wait = ms => new Promise(res => setTimeout(res, ms));
 
 ;(async () => {
-  // 启动浏览器：本地可视（headful），CI 无头
+  // —— 启动浏览器 —— 
   const launchOptions = {
-    headless: isCI,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
+    headless: isCI,  // CI 环境无头，本地可视
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-ipv6',         // 强制走 IPv4
+      '--dns-prefetch-disable'  // 关闭 DNS 预取
+    ]
   };
   if (!isCI && process.platform === 'win32') {
-    // 本地 Windows 指定 Chrome 路径
-    launchOptions.executablePath = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+    // 本地 Windows 指定 Chrome 安装路径
+    launchOptions.executablePath =
+      'C:/Program Files/Google/Chrome/Application/chrome.exe';
   }
 
   const browser = await puppeteer.launch(launchOptions);
   const page = await browser.newPage();
 
+  // —— 可选：设置固定 viewport，保证所有元素在可视区域 —— 
+  await page.setViewport({ width: 1280, height: 800 });
+
+  // 强制 Chromium 以北京时间 (Asia/Shanghai) 运行
+  await page.emulateTimezone('Asia/Shanghai');
+
   // —— 登录流程 —— 
   await page.goto('https://rc.cuc.edu.cn/', { waitUntil: 'networkidle2' });
-  await page.waitForSelector('#username', { visible: true });
+  await page.waitForSelector('#username', { visible: true, timeout: 30000 });
   await page.type('#username', CUC_USERNAME, { delay: 100 });
   await page.type('#password', CUC_PASSWORD, { delay: 100 });
-  await page.waitForSelector('#login_submit', { visible: true });
+
+  await page.waitForSelector('#login_submit', { visible: true, timeout: 30000 });
   await page.click('#login_submit');
 
-  // —— 等待真正的导航到首页 —— 
-  await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 });
+  // —— 等待 SPA 路由到 /main/home —— 
+  await page.waitForFunction(
+    () => window.location.hash.includes('/main/home'),
+    { timeout: 60000 }
+  );
+  await wait(2000);
 
-  // —— 点击“我知道了” —— 
+  // —— 点击“我知道了”弹窗（如果出现） —— 
   try {
     await page.waitForSelector('div.closeNotice', { visible: true, timeout: 5000 });
     await page.click('div.closeNotice');
-    await wait(2000);
+    await wait(1000);
   } catch {
     console.warn('⚠️ “我知道了” 按钮未出现，可能已自动关闭');
   }
 
-  // —— 确保主界面加载完成 —— 
+  // —— 等待主界面加载完成 —— 
   await page.waitForSelector('div.selected-item-wrap', { visible: true, timeout: 30000 });
 
-  // —— 下面是预约流程 —— 
+  // —— 以下为预约流程 —— 
 
-  // 1. 选场馆 &rarr; 梆子井宿舍区
+  // 1. 选场馆 &rarr; “梆子井宿舍区”
   await page.click('div.selected-item-wrap:nth-child(1) input');
   await wait(2000);
   for (const item of await page.$$('li.el-select-dropdown__item')) {
-    if ((await page.evaluate(el => el.textContent.trim(), item)) === '梆子井宿舍区') {
+    const txt = await page.evaluate(el => el.textContent.trim(), item);
+    if (txt === '梆子井宿舍区') {
       await item.click();
       await wait(2000);
       break;
     }
   }
 
-  // 2. 选今天+2天
+  // 2. 选“今天+2天”
   const d = new Date();
   d.setDate(d.getDate() + 2);
   const targetDay = String(d.getDate());
@@ -75,9 +93,11 @@ const wait = ms => new Promise(res => setTimeout(res, ms));
   }, targetDay);
   await wait(2000);
 
-  // 3. 翻页到第10页
+  // 3. 翻页到第 10 页
   while (true) {
-    const active = await page.$eval('ul.el-pager li.number.active', el => Number(el.textContent.trim()));
+    const active = await page.$eval('ul.el-pager li.number.active', el =>
+      Number(el.textContent.trim())
+    );
     if (active >= 10) break;
     await page.click('div.el-pagination.is-background button.btn-next');
     await wait(1000);
@@ -91,7 +111,7 @@ const wait = ms => new Promise(res => setTimeout(res, ms));
   });
   await wait(2000);
 
-  // 5. 选开始时间&rarr;07:00
+  // 5. 选开始时间 &rarr; 07:00
   await page.click('.custom-time > div:nth-child(1) input');
   await wait(2000);
   await page.$$eval('li.el-select-dropdown__item', els => {
@@ -100,7 +120,7 @@ const wait = ms => new Promise(res => setTimeout(res, ms));
   });
   await wait(2000);
 
-  // 6. 选结束时间&rarr;23:00
+  // 6. 选结束时间 &rarr; 23:00
   await page.click('div.el-select:nth-child(3) > div:nth-child(1)');
   await wait(2000);
   await page.$$eval('li.el-select-dropdown__item', els => {
@@ -109,7 +129,7 @@ const wait = ms => new Promise(res => setTimeout(res, ms));
   });
   await wait(2000);
 
-  // 7. 填主题和联系电话
+  // 7. 填“主题”和“联系电话”
   await page.type('input.el-input__inner[placeholder="请输入主题"]', '自习使用', { delay: 100 });
   await wait(2000);
   await page.type('input.el-input__inner[placeholder="请输入联系电话"]', '18626675046', { delay: 100 });
