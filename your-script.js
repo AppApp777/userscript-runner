@@ -82,10 +82,16 @@ const wait = ms => new Promise(res => setTimeout(res, ms));
     }
   }
 
-  // 2. 选“今天+2天”
-  const d = new Date();
-  d.setDate(d.getDate() + 2);
-  const targetDay = String(d.getDate());
+  // —— 2. 基于“北京时间”算今天+2天的日期 —— 
+  // 1) Date.now() + 8h &rarr; 得到“当前北京时间”的时间戳
+  const nowBeijing = new Date(Date.now() + 8 * 3600 * 1000);
+  // 2) 在北京时间基础上再加 2 天
+  nowBeijing.setDate(nowBeijing.getDate() + 2);
+  // 3) 取出“日”作为目标预约日
+  const targetDay = String(nowBeijing.getDate());
+  // 4) （可选）打印日志确认
+  console.log('🔍 目标预约日（北京时间）=', targetDay);
+  
   await page.$$eval('div.el-calendar-day', (els, day) => {
     const avail = els.filter(div => !div.classList.contains('el-calendar-day-disable'));
     const target = avail.find(div => div.textContent.trim() === day);
