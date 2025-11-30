@@ -44,17 +44,84 @@ const wait = ms => new Promise(res => setTimeout(res, ms));
     // 强制使用北京时间
     await page.emulateTimezone('Asia/Shanghai');
 
-    // —— 3. 登录 —— 
+    // —— 3. 打开统一认证页面 —— 
     await page.goto('https://rc.cuc.edu.cn/', { waitUntil: 'networkidle2' });
 
-    await page.waitForSelector('#username', { visible: true, timeout: 30000 });
-    await page.type('#username', CUC_USERNAME, { delay: 100 });
-    await page.type('#password', CUC_PASSWORD, { delay: 100 });
+    await page.waitForSelector('body', { timeout: 30000 });
+    await wait(2000);
 
-    await page.waitForSelector('#login_submit', { visible: true, timeout: 30000 });
-    await page.click('#login_submit');
+    // 3.1 切到“账号登录 / Account login”Tab（无论默认是什么，都点一下）
+    await page.evaluate(() => {
+      const texts = ['账号登录', 'Account login'];
+      const all = Array.from(document.querySelectorAll('*'));
+      for (const t of texts) {
+        const el = all.find(node =>
+          (node.textContent || '').includes(t)
+        );
+        if (el && el instanceof HTMLElement) {
+          el.click();
+          break;
+        }
+      }
+    });
 
-    // 等待路由跳到 /main/home
+    await wait(1000);
+
+    // 3.2 找用户名输入框（多种兜底 selector）
+    const usernameSelector =
+      'input#username, ' +
+      'input[name="username"], ' +
+      'input[placeholder*="账号"], ' +
+      'input[placeholder*="学号"], ' +
+      'input[placeholder*="Account"], ' +
+      'input[placeholder*="Username"]';
+
+    await page.waitForSelector(usernameSelector, {
+      visible: true,
+      timeout: 30000
+    });
+
+    await page.type(usernameSelector, CUC_USERNAME, { delay: 80 });
+
+    // 3.3 找密码输入框
+    const passwordSelector =
+      'input[type="password"], ' +
+      'input#password, ' +
+      'input[name="password"], ' +
+      'input[placeholder*="密码"], ' +
+      'input[placeholder*="Password"]';
+
+    await page.waitForSelector(passwordSelector, {
+      visible: true,
+      timeout: 30000
+    });
+    await page.type(passwordSelector, CUC_PASSWORD, { delay: 80 });
+
+    // 3.4 点击“登录”按钮（优先 #login_submit，然后按文本兜底）
+    const clickedLogin = await page.evaluate(() => {
+      const submitEl = document.querySelector('#login_submit');
+      if (submitEl && submitEl instanceof HTMLElement) {
+        submitEl.click();
+        return true;
+      }
+      const candidates = Array.from(
+        document.querySelectorAll('button, input[type="button"], input[type="submit"], a, span, div')
+      );
+      const btn = candidates.find(el =>
+        /登录|Login/i.test((el.textContent || '').trim())
+      );
+      if (btn && btn instanceof HTMLElement) {
+        btn.click();
+        return true;
+      }
+      return false;
+    });
+
+    if (!clickedLogin) {
+      throw new Error('❌ 没找到登录按钮（既没有 #login_submit，也没有文本包含“登录/Login”的按钮）');
+    }
+
+    // —— 等待 SPA 路由到 /main/home —— 
     await page.waitForFunction(
       () => window.location.hash.includes('/main/home'),
       { timeout: 60000 }
@@ -77,7 +144,6 @@ const wait = ms => new Promise(res => setTimeout(res, ms));
     });
 
     // —— 5. 选场馆 → “梆子井宿舍区” —— 
-    // 第一个 selected-item-wrap 一般是场馆选择
     await page.click('div.selected-item-wrap:nth-child(1) input');
     await wait(2000);
 
@@ -112,7 +178,6 @@ const wait = ms => new Promise(res => setTimeout(res, ms));
     const targetDateStr = `${targetYear}-${normalize(targetMonth)}-${normalize(targetDay)}`;
     console.log('🔍 目标预约日（北京时间）=', targetDateStr);
 
-    // 在日历里根据 年-月-日 精确选中对应的格子
     const dateClickResult = await page.evaluate((targetDateStr) => {
       const header = document.querySelector('.el-calendar__header .el-calendar__title');
       if (!header) {
@@ -185,18 +250,15 @@ const wait = ms => new Promise(res => setTimeout(res, ms));
 
     while (true) {
       const clicked = await page.evaluate((roomName) => {
-        // 每页的房间卡片
         const items = Array.from(document.querySelectorAll('.room-item-wrap'));
         for (const item of items) {
           const nameEl = item.querySelector('.room-name');
           if (!nameEl) continue;
           if (nameEl.textContent.includes(roomName)) {
-            // 你提供的信息：点 .img-wrap 可以进去
             const imgWrap = item.querySelector('.img-wrap');
-            if (imgWrap) {
+            if (imgWrap && imgWrap instanceof HTMLElement) {
               imgWrap.click();
             } else {
-              // 兜底：如果没有 img-wrap，就点整行
               item.click();
             }
             return true;
@@ -210,7 +272,6 @@ const wait = ms => new Promise(res => setTimeout(res, ms));
         break;
       }
 
-      // 当前页没找到，尝试翻下一页
       const hasNext = await page.evaluate(() => {
         const nextBtn = document.querySelector('.el-pagination button.btn-next');
         if (!nextBtn) return false;
@@ -227,13 +288,12 @@ const wait = ms => new Promise(res => setTimeout(res, ms));
     }
 
     console.log('✅ 已点击目标自习室，等待时间选择控件...');
-    // 适当多等一会儿，给页面打开时间选择模块的时间
     await wait(2000);
 
     // —— 8. 通过时间滑块选择 07:00 - 23:00 —— 
     await page.waitForSelector('.timer-content-mid-wrap', {
       visible: true,
-      timeout: 20000  // 加长一点，避免网络慢时超时
+      timeout: 20000
     });
     console.log('✅ 预约时间滑块已显示');
 
@@ -251,9 +311,7 @@ const wait = ms => new Promise(res => setTimeout(res, ms));
         return items.find(el => el.textContent.trim() === text);
       };
 
-      // 开始时间 07:00（上半段）
       const startMark = findMark(topMarksRoot, '07:00');
-      // 结束时间 23:00（下半段）
       const endMark = findMark(bottomMarksRoot, '23:00');
 
       if (!startMark || !endMark) {
@@ -262,7 +320,7 @@ const wait = ms => new Promise(res => setTimeout(res, ms));
 
       const clickTarget = el => {
         const item = el.closest('.timer-slider__marks-item') || el;
-        item.click();
+        if (item && item instanceof HTMLElement) item.click();
       };
 
       clickTarget(startMark);
