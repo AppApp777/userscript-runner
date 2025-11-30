@@ -1,6 +1,7 @@
 // your-script.js
 
 const puppeteer = require('puppeteer');
+const fs = require('fs'); // ✅ 新增：用来保存 HTML 文件
 
 // —— 1. 从环境变量读取账号密码 —— 
 const CUC_USERNAME = process.env.CUC_USERNAME;
@@ -16,8 +17,29 @@ const isCI = process.env.CI === 'true';
 // 简易等待函数
 const wait = ms => new Promise(res => setTimeout(res, ms));
 
+/**
+ * 保存调试信息：截图 + HTML
+ * label 用来区分步骤，比如 'after-goto'、'error'
+ */
+async function saveDebug(page, label) {
+  if (!page) return;
+  try {
+    const pngPath = `debug-${label}.png`;
+    const htmlPath = `debug-${label}.html`;
+
+    await page.screenshot({ path: pngPath, fullPage: true });
+    const html = await page.content();
+    fs.writeFileSync(htmlPath, html, 'utf8');
+
+    console.log(`🛠 已保存调试文件: ${pngPath} / ${htmlPath}`);
+  } catch (e) {
+    console.error('⚠️ 保存调试文件失败: ', e);
+  }
+}
+
 ;(async () => {
   let browser;
+  let page; // ✅ 提到外面来，方便出错时也能截图
   try {
     // —— 2. 启动浏览器 —— 
     const launchOptions = {
@@ -36,7 +58,7 @@ const wait = ms => new Promise(res => setTimeout(res, ms));
     }
 
     browser = await puppeteer.launch(launchOptions);
-    const page = await browser.newPage();
+    page = await browser.newPage();
 
     // 固定 viewport，保证元素在可视区域
     await page.setViewport({ width: 1280, height: 800 });
@@ -46,6 +68,9 @@ const wait = ms => new Promise(res => setTimeout(res, ms));
 
     // —— 3. 登录 —— 
     await page.goto('https://rc.cuc.edu.cn/', { waitUntil: 'networkidle2' });
+
+    // 👇 关键：GitHub 上到底打开了什么页面，先拍一张
+    await saveDebug(page, 'after-goto');
 
     await page.waitForSelector('#username', { visible: true, timeout: 30000 });
     await page.type('#username', CUC_USERNAME, { delay: 100 });
@@ -312,6 +337,13 @@ const wait = ms => new Promise(res => setTimeout(res, ms));
     }
 
   } catch (err) {
+    // ❗ 出错时再拍一张，看卡在哪
+    try {
+      await saveDebug(page, 'error');
+    } catch (e) {
+      console.error('⚠️ 失败时保存调试信息出错：', e);
+    }
+
     console.error('❌ 脚本执行出错：', err);
     process.exitCode = 1;
   } finally {
