@@ -7,25 +7,31 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  run-script:
+  run:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'
-      - name: Cache dependencies
-        uses: actions/cache@v3
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
-      - name: Install dependencies
+          node-version: 22
+
+      - name: Install deps
         run: npm ci
+
       - name: Execute Userscript
-        run: npm run run
         env:
           CUC_USERNAME: ${{ secrets.CUC_USERNAME }}
           CUC_PASSWORD: ${{ secrets.CUC_PASSWORD }}
+        run: npm run run
+
+      - name: Upload debug artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-files
+          path: |
+            debug-*.png
+            debug-*.html
